@@ -21,7 +21,7 @@ Use Python 3.12 or newer. The tooling requires only its standard library.
 ```bash
 python3 -m unittest discover -s scripts -p '*_test.py'
 git diff --check
-actionlint .github/workflows/check.yml .github/workflows/pages.yml
+actionlint .github/workflows/pages.yml
 ```
 
 If actionlint's runner registry does not yet recognize `ubuntu-26.04`, verify the
