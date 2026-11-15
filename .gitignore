@@ -1,0 +1,6 @@
+/build/
+/site/
+/.idea/
+/.env
+__pycache__/
+*.pyc
