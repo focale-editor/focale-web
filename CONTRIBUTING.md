@@ -38,8 +38,10 @@ python3 -m http.server 8000 --directory site
 
 Replace the sample tag with the downloaded release's tag. The output directory
 must not exist. To retain its predecessor, add `--previous build/previous
---previous-tag v0.9.0` to `stage`. Open `http://localhost:8000/` to follow the same
-version selection as production. Missing assets must return 404, not the app HTML.
+--previous-tag v0.9.0` to `stage`. Open `http://localhost:8000/` and check that the
+application starts and reloads at `/`, with resources loaded from the current
+`/releases/<tag>/` directory and content-hashed database files from `/workers/`.
+Missing assets must return 404, not the app HTML.
 
 Unit tests cover integrity, unsafe archives, release retention, retry immutability
 and stale deployments. Browser startup tests run with the compiled application in

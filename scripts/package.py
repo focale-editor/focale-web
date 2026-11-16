@@ -217,7 +217,7 @@ def extract(directory, tag, output):
 
 
 def stage(current, tag, output, previous=None, previous_tag=None):
-    """Stage the current and previous complete releases with a stable entry URL."""
+    """Serve the current app at the root with current and previous versioned assets."""
     if output.exists():
         raise ValueError('Pages output must not exist.')
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -228,21 +228,29 @@ def stage(current, tag, output, previous=None, previous_tag=None):
             if previous_tag == tag:
                 raise ValueError('Previous release must differ from the current one.')
             extract(previous, previous_tag, site / 'releases' / previous_tag)
-        if sum(path.stat().st_size for path in site.rglob('*') if path.is_file()) > MAX_SITE_BYTES:
-            raise ValueError('Current and previous releases exceed the Pages size budget.')
-        destination = metadata['basePath']
-        (site / 'index.html').write_text(
-            '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-            '<title>Focale</title>\n'
-            f'<meta http-equiv="refresh" content="0;url={destination}">\n'
-            '</head><body>'
-            f'<a href="{destination}">Open Focale</a></body></html>\n'
-        )
+        # Published builds resolve Drift and SQLite against the visible page URL.
+        # Retain their hashed paths for both releases so root tabs can still load
+        # their database workers after the next deployment.
+        for release in (site / 'releases').iterdir():
+            for source in (release / 'workers').iterdir():
+                if not re.fullmatch(r'(?:drift_worker\.[a-f0-9]+\.js|sqlite3\.[a-f0-9]+\.wasm)', source.name):
+                    continue
+                target = site / 'workers' / source.name
+                if target.exists():
+                    if digest(target) != digest(source):
+                        raise ValueError('Retained releases have conflicting database worker bytes.')
+                else:
+                    target.parent.mkdir(exist_ok=True)
+                    shutil.copyfile(source, target)
+        # The verified <base> keeps the remaining assets in this release while
+        # the address bar stays at the root, including after a reload.
+        shutil.copyfile(site / 'releases' / tag / 'index.html', site / 'index.html')
         (site / 'CNAME').write_text(DOMAIN + '\n')
         (site / '.nojekyll').touch()
         write_json(
             site / 'release.json',
             {key: metadata[key] for key in ('schemaVersion', 'version', 'tag', 'sourceSha', 'basePath', 'domain')},
         )
+        if sum(path.stat().st_size for path in site.rglob('*') if path.is_file()) > MAX_SITE_BYTES:
+            raise ValueError('Current and previous releases exceed the Pages size budget.')
         site.rename(output)

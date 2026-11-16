@@ -16,15 +16,22 @@ SHA = 'a' * 40
 def fixture(directory, tag='v1.0.0'):
     """Create a minimal dual-backend distribution with real precache checksums."""
     files = {
-        'index.html': f'<base href="/releases/{tag}/">'.encode(),
+        'index.html': (
+            '<!doctype html><html><head>'
+            f'<base href="/releases/{tag}/">'
+            '<title>Focale</title><link rel="manifest" href="manifest.json">'
+            '</head><body><script src="flutter_bootstrap.js" async></script></body></html>'
+        ).encode(),
         'flutter_bootstrap.js': b'bootstrap',
         'manifest.json': b'{"start_url":"."}',
         'main.dart.12345678.wasm': b'wasm',
         'main.dart.12345678.js': b'js',
         'workers/focale_worker.1234567890abcdef.js': b'codec',
-        'workers/drift_worker.1234567890abcdef.js': b'drift',
-        'workers/sqlite3.1234567890abcdef.wasm': b'sqlite',
     }
+    for name, extension in (('drift_worker', 'js'), ('sqlite3', 'wasm')):
+        data = f'{name}:{tag}'.encode() if name == 'drift_worker' else b'sqlite'
+        fingerprint = hashlib.sha256(data).hexdigest()[:16]
+        files[f'workers/{name}.{fingerprint}.{extension}'] = data
     for name in ('chromalib', 'imcodec_native', 'rawkit', 'textshaperlib'):
         files[f'runtimes/1234567890abcdef/{name}/{name}.wasm'] = name.encode()
     entries = []
@@ -72,10 +79,28 @@ class PackageTests(unittest.TestCase):
         package.pack(newer, self.root / 'new-package', '1.1.0+2', 'v1.1.0', 'b' * 40)
         site = self.root / 'site'
         package.stage(self.root / 'new-package', 'v1.1.0', site, self.output, 'v1.0.0')
-        self.assertIn('/releases/v1.1.0/', (site / 'index.html').read_text())
+        self.assertEqual((site / 'index.html').read_bytes(), (newer / 'index.html').read_bytes())
         for tag in ('v1.0.0', 'v1.1.0'):
             self.assertTrue((site / 'releases' / tag / 'flutter_bootstrap.js').is_file())
+            for worker in (site / 'releases' / tag / 'workers').iterdir():
+                if worker.name.startswith(('drift_worker.', 'sqlite3.')):
+                    self.assertEqual((site / 'workers' / worker.name).read_bytes(), worker.read_bytes())
+        self.assertEqual(len(list((site / 'workers').iterdir())), 3)
         self.assertEqual((site / 'CNAME').read_text(), 'web.focale-editor.app\n')
+
+    def test_root_serves_the_verified_app_without_a_redirect(self):
+        metadata = self.pack()
+        site = self.root / 'site'
+        package.stage(self.output, 'v1.0.0', site)
+        self.assertEqual(package.digest(site / 'index.html'), metadata['files']['index.html']['sha256'])
+        html = (site / 'index.html').read_text()
+        self.assertIn('<base href="/releases/v1.0.0/">', html)
+        self.assertIn('<script src="flutter_bootstrap.js"', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertFalse((site / 'flutter_bootstrap.js').exists())
+        for worker in (self.source / 'workers').iterdir():
+            if worker.name.startswith(('drift_worker.', 'sqlite3.')):
+                self.assertEqual((site / 'workers' / worker.name).read_bytes(), worker.read_bytes())
 
     def test_truncated_archive_is_rejected_without_partial_site(self):
         metadata = self.pack()
@@ -83,6 +108,23 @@ class PackageTests(unittest.TestCase):
         archive.write_bytes(archive.read_bytes()[:-10])
         with self.assertRaisesRegex(ValueError, 'checksum or size'):
             package.stage(self.output, 'v1.0.0', self.root / 'site')
+        self.assertFalse((self.root / 'site').exists())
+
+    def test_conflicting_database_worker_paths_are_rejected(self):
+        self.pack()
+        newer = self.root / 'newer'
+        fixture(newer, 'v1.1.0')
+        worker = next((newer / 'workers').glob('drift_worker.*.js'))
+        reused_name = next((self.source / 'workers').glob('drift_worker.*.js')).name
+        worker.rename(worker.with_name(reused_name))
+        manifest = json.loads((newer / 'precache_manifest.json').read_text())
+        for entry in manifest['entries']:
+            if entry['url'] == f'workers/{worker.name}':
+                entry['url'] = f'workers/{reused_name}'
+        package.write_json(newer / 'precache_manifest.json', manifest)
+        package.pack(newer, self.root / 'new-package', '1.1.0+2', 'v1.1.0', SHA)
+        with self.assertRaisesRegex(ValueError, 'conflicting database worker'):
+            package.stage(self.root / 'new-package', 'v1.1.0', self.root / 'site', self.output, 'v1.0.0')
         self.assertFalse((self.root / 'site').exists())
 
     def test_changed_member_is_rejected_even_when_archive_hash_is_updated(self):

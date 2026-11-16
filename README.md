@@ -32,9 +32,10 @@ file integration and workloads that exceed browser limits.
 
 ## Updates
 
-Open [web.focale-editor.app](https://web.focale-editor.app) to enter the current
-release. Existing tabs keep their version; save your work and return to that
-address when you want to update. Installed shortcuts also open the current release.
+Open [web.focale-editor.app](https://web.focale-editor.app) to use the current
+release directly at that address, without a redirect. Existing tabs keep their
+version; save your work and reload that address when you want to update. Installed
+shortcuts also open the current release.
 
 The site retains the current and previous complete releases. An older tab may
 need to be reopened after more releases have been published. Documents remain
@@ -59,9 +60,13 @@ The metadata binds the archive and every file to their SHA-256 checksums, full
 application version and source commit. These checks detect changed or incomplete
 assets; publication trust comes from the protected GitHub repositories and HTTPS.
 
-Pages serves complete bundles at `/releases/<tag>/`. The root selects the current
-version, avoiding dependencies on custom HTTP cache headers. Pages does not
-provide configurable COOP/COEP headers: Wasm rendering uses the browser's
+Pages serves complete bundles at `/releases/<tag>/`. The root serves an identical
+copy of the current release's `index.html`; its versioned `<base>` keeps resource
+requests within that release while the browser address stays at `/`. Published
+builds resolve their database workers against the page URL, so their files are
+also served at `/workers/` under content-hashed names, retaining both releases.
+This keeps versions separate without depending on custom HTTP cache headers.
+Pages does not provide configurable COOP/COEP headers: Wasm rendering uses the browser's
 non-isolated fallback. Browser tests exercise this hosting condition.
 
 ## Feedback and help
